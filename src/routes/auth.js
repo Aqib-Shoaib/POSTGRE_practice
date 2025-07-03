@@ -1,18 +1,19 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import db from "../db.js";
+import prisma from "../prismaClient.js";
 
 const router = express.Router();
 
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    const getUser = db.prepare(`
-        SELECT * FROM users WHERE username = ?
-        `);
-    const user = getUser.get(username);
+    const user = await prisma.user.findUnique({
+      where: {
+        username,
+      },
+    });
 
     if (!user) {
       return res.status(404).json({
@@ -43,32 +44,31 @@ router.post("/login", (req, res) => {
   }
 });
 
-router.post("/register", (req, res) => {
+router.post("/register", async (req, res) => {
   const { username, password } = req.body;
 
   const hashedPassword = bcrypt.hashSync(password, 8);
 
   try {
-    const insertUser = db.prepare(`
-        INSERT INTO users (username,password) VALUES (?,?)
-        `);
-
-    const result = insertUser.run(username, hashedPassword);
+    const user = await prisma.user.create({
+      data: {
+        username,
+        password: hashedPassword,
+      },
+    });
 
     //default todo
     const defaultTodo = "Hello :) Welcome to your todo list!";
-    const insertTodo = db.prepare(`
-        INSERT INTO todos (user_id, todo) VALUES (?,?)
-        `);
-    insertTodo.run(result.lastInsertRowid, defaultTodo);
+    await prisma.todo.create({
+      data: {
+        task: defaultTodo,
+        user_id: user.id,
+      },
+    });
 
-    const token = jwt.sign(
-      { id: result.lastInsertRowid },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: 86400, // 24 hours
-      }
-    );
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
+      expiresIn: 86400, // 24 hours
+    });
 
     return res.status(201).json({
       message: "User Registered Successfully",
